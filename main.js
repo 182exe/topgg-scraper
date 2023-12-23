@@ -1,21 +1,22 @@
 const blessed = require(`blessed`);
 const os = require(`node:os`);
-const { addExtra } = require('puppeteer-extra')
-const vanillaPuppeteer = require('puppeteer');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth')
-const AdblockerPlugin = require('puppeteer-extra-plugin-adblocker')
+const fs = require('node:fs');
+const { log } = require('node:console');
+const config = require(`./config.json`);
 
 const screen = blessed.screen({
     smartCSR: true,
     title: `top.gg scraper`,
 });
-const outputBox = blessed.box({
+const output = blessed.log({
     top: 0,
     left: 0,
     width: `50%`,
     height: `50%`,
     label: `> invites`,
     tags: true,
+    alwaysScroll: true,
+    scrollable: true,
     border: { type: `line`, },
     style: {
         fg: `white`,
@@ -27,13 +28,15 @@ const outputBox = blessed.box({
         }
     }
 });
-const logBox = blessed.box({
+const logger = blessed.log({
     top: 0,
     left: `50%`,
     width: `50%`,
     height: `100%`,
     label: `> log`,
     tags: true,
+    alwaysScroll: true,
+    scrollable: true,
     border: { type: `line`, },
     style: {
         fg: `white`,
@@ -45,7 +48,7 @@ const logBox = blessed.box({
         }
     }
 });
-const infoBox = blessed.box({
+const info = blessed.box({
     top: `50%`,
     left: 0,
     height: `50%`,
@@ -63,17 +66,24 @@ const infoBox = blessed.box({
         }
     }
 });
-screen.append(outputBox);
-screen.append(logBox);
-screen.append(infoBox);
+screen.append(output);
+screen.append(logger);
+screen.append(info);
 screen.key([`escape`, `q`, `C-c`], (ch, key) => {
     return process.exit(0);
 });
+function writeFile(text) {
+    const filename = 'output.txt';
 
-function log(message) { logBox.insertBottom(message); }
-function output(message) { outputBox.insertBottom(message); }
+    if (!fs.existsSync(filename)) {
+        fs.writeFileSync(filename, ``);
+    }
+    fs.appendFileSync(filename, text + `\n`);
+}
+logger.log(`screen loaded.`)
 
 let totalScraped = 0;
+let title = ``;
 let startTime = Date.now()
 function calculateUptime() {
     const uptimeInMillis = Date.now() - startTime;
@@ -87,59 +97,115 @@ function calculateUptime() {
     return `${h}:${m}:${s}.${ms}`;
 }
 
-const stats = {
+let stats = {
+    pageTitle: title,
     totalLinks: 0,
     uptime: calculateUptime(),
-    totalMemory: os.totalmem() / (1024 * 1024),
-    freeMemory: os.freemem() / (1024 * 1024)
+    totalMemory: os.totalmem() / (1024 * 1024 * 1024),
+    freeMemory: os.freemem() / (1024 * 1024 * 1024)
 };
 
 setInterval(() => {
-    infoBox.content = `time: ${stats.uptime}\nfound: ${stats.totalLinks}\nmem: ${stats.freeMemory}/${stats.totalMemory} MB`
+    info.content = `time: ${stats.uptime}\nfound: ${stats.totalLinks}\nmem: ${stats.freeMemory.toFixed(0)}/${stats.totalMemory.toFixed(0)} GB\ntitle: ${stats.title}`
     screen.render()
-}, 0);
+    stats = {
+        pageTitle: title,
+        totalLinks: 0,
+        uptime: calculateUptime(),
+        totalMemory: os.totalmem() / (1024 * 1024),
+        freeMemory: os.freemem() / (1024 * 1024)
+    };
+}, 10);
 
 screen.render();
 
 (async () => {
-    log('starting...');
-    log('launching browser...');
+    logger.log('starting...');
+    async function fetchData(skip = 0) {
+        const url = `https://top.gg/api/client/entities/search?platform=discord&entityType=bot&${config.searchparams}&amount=${config.invitespersearchrequest}&skip=${skip}`;
+        logger.log(`searching with url ${url}...`)
 
-    const puppeteer = addExtra(vanillaPuppeteer)
-    const adblocker = AdblockerPlugin({
-        blockTrackers: true
-    });
+        const headers = {
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'DNT': '1',
+            'Host': 'top.gg',
+            'Referer': 'https://top.gg/list/top',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"'
+        };
+
+        fs.readFile(`./cookie.txt`, (err, data) => {
+            headers.Cookie = data;
+            if (err) {
+                logger.log(err);
+            };
+        });
+
+        try {
+            let response = '';
+            await fetch(url, { headers }).then(reply => {
+                response = reply;
+                logger.log(`code ${response.status} from ${url}`);
+            });
+            const data = await response.json();
+
+            if (data.results && data.results.length > 0) {
+                const resultIds = data.results.map(result => result.id);
+                logger.log(`got ${resultIds.length} bot IDs. getting discord auth links...`);
+
+                for (const id of resultIds) {
+                    logger.log(`pulling top.gg redirect from ${id}`);
+
+                    const inviteUrl = `https://top.gg/_next/data/3ec65ad-prod/en/bot/${id}/invite.json?botId=${id}`;
+                    let inviteResponse = ``;
+                    await fetch(inviteUrl, { headers }).then(reply => {
+                        inviteResponse = reply;
+                        logger.log(`code ${inviteResponse.status} from ${inviteUrl}`);
+                    });
+
+                    const inviteData = await inviteResponse.json();
+                    const redirectLink = inviteData.pageProps.__N_REDIRECT;
+
+                    if (redirectLink.includes("https://discord.com/") || redirectLink.includes("https://discordapp.com/")) {
+                        logger.log(`vanilla discord bot invite found for ${id}!`);
+                        const clientId = redirectLink.match(/client_id=(\d+)/)[1];
+                        let link;
+
+                        if (config.clearpermissionsandscopes) {
+                            link = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=0&scope=bot`;
+                        } else {
+                            link = redirectLink;
+                        }
     
-    puppeteer.use(adblocker)
-    puppeteer.use(StealthPlugin())
+                        writeFile(link);
+                        logger.log(`added ${link}`);
+                        output.log(link);
+                    } else {
+                        logger.log(`top.gg response did not contain vanilla invite link for ${id}.`);
+                        writeFile(redirectLink);
+                        logger.log(`added ${redirectLink}`);
+                        output.log(redirectLink);
+                    }
+                }
 
-    const browser = await puppeteer.launch({
-        headless: false
-    });
-
-    log(`launched, running chromium version ${await browser.version()}!`);
-
-    log('creating page...');
-    const page = await browser.newPage();
-
-    log('visiting top.gg...');
-    await page.goto('https://top.gg/');
-
-    while (true) {
-        const links = await page.evaluate(() => {
-            const anchors = Array.from(document.querySelectorAll('a'));
-            return anchors.map(anchor => ({
-                href: anchor.href,
-                text: anchor.textContent
-            }));
-        });
-
-        await page.evaluate(() => {
-            window.scrollBy(0, window.innerHeight);
-        });
-
-        await page.waitForTimeout(1000);
+                await fetchData(skip + config.invitespersearchrequest);
+            } else {
+                logger.log('No more data to fetch.');
+            }
+        } catch (error) {
+            logger.log(`Error fetching data: ${error}`);
+            
+            await fetchData(skip + config.invitespersearchrequest);
+        }
     }
 
-    await browser.close();
+    fetchData();
 })();

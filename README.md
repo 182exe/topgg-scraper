@@ -1,5 +1,5 @@
 # top.gg discord bot site scraper
-gets discord bot auth links from top.gg.
+gets discord bot auth links from top.gg. very silly code.
 - demo:
 > ![demo of program cooking](./assets/demo.gif)
 

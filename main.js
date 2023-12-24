@@ -1,7 +1,6 @@
 const blessed = require(`blessed`);
 const os = require(`node:os`);
 const fs = require('node:fs');
-const { log } = require('node:console');
 const config = require(`./config.json`);
 
 //init blessed stuff

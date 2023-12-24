@@ -219,7 +219,7 @@ screen.render();
                         //log to txt, output, and logger
                         writeFile(link);
                         logger.log(`added ${link}`);
-                        output.log(link);
+                        output.log(link.replace(/^https?:\/\//, ''));
                         totalScraped++;
                     } else {
                         logger.log(`top.gg response did not contain vanilla invite link for ${id}.`);
@@ -231,7 +231,7 @@ screen.render();
                             //log to txt, output, and logger anyways
                             writeFile(redirectLink);
                             logger.log(`added ${redirectLink}`);
-                            output.log(redirectLink);
+                            output.log(redirectLink.replace(/^https?:\/\//, ''));
                             totalScraped++;
                         };
                     }

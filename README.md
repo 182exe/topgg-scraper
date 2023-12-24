@@ -1,5 +1,7 @@
 # top.gg discord bot site scraper
 gets discord bot auth links from top.gg.
+- demo:
+> ![demo of program cooking](./assets/demo.gif)
 
 ## setup
 1. get the program

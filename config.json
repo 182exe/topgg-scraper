@@ -1,4 +1,6 @@
 {
     "invitespersearchrequest": 10,
-    "clearpermissionsandscopes": true
+    "searchparams": "nsfwLevel=1&newSortingOrder=TOP&sort=top&isMature=false",
+    "clearpermissionsandscopes": true,
+    "ignorenonvanillainvitelinks": true
 }

@@ -12,8 +12,8 @@ const output = blessed.log({
     top: 0,
     left: 0,
     width: `50%`,
-    height: `50%`,
-    label: `> invites`,
+    height: `75%`,
+    label: ` > invites `,
     tags: true,
     alwaysScroll: true,
     scrollable: true,
@@ -21,7 +21,7 @@ const output = blessed.log({
     style: {
         fg: `white`,
         border: {
-            fg: `brightblack`
+            fg: `red`
         },
         label: {
             fg: `brightred`
@@ -33,7 +33,7 @@ const logger = blessed.log({
     left: `50%`,
     width: `50%`,
     height: `100%`,
-    label: `> log`,
+    label: ` > log `,
     tags: true,
     alwaysScroll: true,
     scrollable: true,
@@ -41,7 +41,7 @@ const logger = blessed.log({
     style: {
         fg: `white`,
         border: {
-            fg: `brightblack`
+            fg: `brightblue`
         },
         label: {
             fg: `cyan`
@@ -49,17 +49,17 @@ const logger = blessed.log({
     }
 });
 const info = blessed.box({
-    top: `50%`,
+    top: `75%`,
     left: 0,
-    height: `50%`,
+    height: `25%`,
     width: `50%`,
-    label: `> info`,
+    label: ` > info `,
     tags: true,
     border: { type: `line`, },
     style: {
         fg: `white`,
         border: {
-            fg: `brightblack`
+            fg: `yellow`
         },
         label: {
             fg: `brightyellow`
@@ -83,7 +83,8 @@ function writeFile(text) {
 logger.log(`screen loaded.`)
 
 let totalScraped = 0;
-let title = ``;
+let totalRequests = 0;
+let searchIterations = 0;
 let startTime = Date.now()
 function calculateUptime() {
     const uptimeInMillis = Date.now() - startTime;
@@ -96,24 +97,30 @@ function calculateUptime() {
 
     return `${h}:${m}:${s}.${ms}`;
 }
-
+function calculateLinksPerMinute() {
+    return (totalScraped / ((Date.now() - startTime) / 1000 / 60)).toFixed(2);
+}
 let stats = {
-    pageTitle: title,
-    totalLinks: 0,
+    totalLinks: totalScraped,
     uptime: calculateUptime(),
     totalMemory: os.totalmem() / (1024 * 1024 * 1024),
-    freeMemory: os.freemem() / (1024 * 1024 * 1024)
+    freeMemory: os.freemem() / (1024 * 1024 * 1024),
+    linksPerMinute: calculateLinksPerMinute(),
+    totalRequests: totalRequests,
+    searchIterations: searchIterations
 };
 
 setInterval(() => {
-    info.content = `time: ${stats.uptime}\nfound: ${stats.totalLinks}\nmem: ${stats.freeMemory.toFixed(0)}/${stats.totalMemory.toFixed(0)} GB\ntitle: ${stats.title}`
+    info.content = `time: ${stats.uptime}\nfound: ${stats.totalLinks} (~${stats.linksPerMinute} per minute)\nmem: ${stats.freeMemory.toFixed(0)}/${stats.totalMemory.toFixed(0)} GB\ntotal requests: ${stats.totalRequests}\nsearch iterations: ${stats.searchIterations}`
     screen.render()
     stats = {
-        pageTitle: title,
-        totalLinks: 0,
+        totalLinks: totalScraped,
         uptime: calculateUptime(),
-        totalMemory: os.totalmem() / (1024 * 1024),
-        freeMemory: os.freemem() / (1024 * 1024)
+        totalMemory: os.totalmem() / (1024 * 1024 * 1024),
+        freeMemory: os.freemem() / (1024 * 1024 * 1024),
+        linksPerMinute: calculateLinksPerMinute(),
+        totalRequests: totalRequests,
+        searchIterations: searchIterations
     };
 }, 10);
 
@@ -122,6 +129,7 @@ screen.render();
 (async () => {
     logger.log('starting...');
     async function fetchData(skip = 0) {
+        searchIterations++;
         const url = `https://top.gg/api/client/entities/search?platform=discord&entityType=bot&${config.searchparams}&amount=${config.invitespersearchrequest}&skip=${skip}`;
         logger.log(`searching with url ${url}...`)
 
@@ -154,6 +162,7 @@ screen.render();
             await fetch(url, { headers }).then(reply => {
                 response = reply;
                 logger.log(`code ${response.status} from ${url}`);
+                totalRequests++;
             });
             const data = await response.json();
 
@@ -169,6 +178,7 @@ screen.render();
                     await fetch(inviteUrl, { headers }).then(reply => {
                         inviteResponse = reply;
                         logger.log(`code ${inviteResponse.status} from ${inviteUrl}`);
+                        totalRequests++;
                     });
 
                     const inviteData = await inviteResponse.json();
@@ -188,11 +198,18 @@ screen.render();
                         writeFile(link);
                         logger.log(`added ${link}`);
                         output.log(link);
+                        totalScraped++;
                     } else {
                         logger.log(`top.gg response did not contain vanilla invite link for ${id}.`);
-                        writeFile(redirectLink);
-                        logger.log(`added ${redirectLink}`);
-                        output.log(redirectLink);
+                        
+                        if (config.ignorenonvanillainvitelinks) {
+                            logger.log(`skipping because of configuration.`);
+                        } else {
+                            writeFile(redirectLink);
+                            logger.log(`added ${redirectLink}`);
+                            output.log(redirectLink);
+                            totalScraped++;
+                        };
                     }
                 }
 

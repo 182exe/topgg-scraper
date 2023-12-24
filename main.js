@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const { log } = require('node:console');
 const config = require(`./config.json`);
 
+//init blessed stuff
 const screen = blessed.screen({
     smartCSR: true,
     title: `top.gg scraper`,
@@ -66,12 +67,17 @@ const info = blessed.box({
         }
     }
 });
+
+//add to screen/exit process on escape, q or control c
 screen.append(output);
 screen.append(logger);
 screen.append(info);
 screen.key([`escape`, `q`, `C-c`], (ch, key) => {
     return process.exit(0);
 });
+logger.log(`screen loaded.`)
+
+//write to output.txt
 function writeFile(text) {
     const filename = 'output.txt';
 
@@ -80,8 +86,8 @@ function writeFile(text) {
     }
     fs.appendFileSync(filename, text + `\n`);
 }
-logger.log(`screen loaded.`)
 
+//stats for the info box
 let totalScraped = 0;
 let totalRequests = 0;
 let searchIterations = 0;
@@ -96,10 +102,10 @@ function calculateUptime() {
     ].map(val => val.toFixed(0).padStart(2, '0'));
 
     return `${h}:${m}:${s}.${ms}`;
-}
+};
 function calculateLinksPerMinute() {
     return (totalScraped / ((Date.now() - startTime) / 1000 / 60)).toFixed(2);
-}
+};
 let stats = {
     totalLinks: totalScraped,
     uptime: calculateUptime(),
@@ -110,9 +116,10 @@ let stats = {
     searchIterations: searchIterations
 };
 
+//refresh screen & update stats every 10ms
 setInterval(() => {
     info.content = `time: ${stats.uptime}\nfound: ${stats.totalLinks} (~${stats.linksPerMinute} per minute)\nmem: ${stats.freeMemory.toFixed(0)}/${stats.totalMemory.toFixed(0)} GB\ntotal requests: ${stats.totalRequests}\nsearch iterations: ${stats.searchIterations}`
-    screen.render()
+    screen.render();
     stats = {
         totalLinks: totalScraped,
         uptime: calculateUptime(),
@@ -124,15 +131,23 @@ setInterval(() => {
     };
 }, 10);
 
+//initial screen render
 screen.render();
 
+//main function
 (async () => {
     logger.log('starting...');
+
+    //repeating scrape function
     async function fetchData(skip = 0) {
+        //stats update
         searchIterations++;
+
+        //search api url
         const url = `https://top.gg/api/client/entities/search?platform=discord&entityType=bot&${config.searchparams}&amount=${config.invitespersearchrequest}&skip=${skip}`;
         logger.log(`searching with url ${url}...`)
 
+        //headers, and get cookie from cookie.txt
         const headers = {
             'Accept': '*/*',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -149,7 +164,6 @@ screen.render();
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Windows"'
         };
-
         fs.readFile(`./cookie.txt`, (err, data) => {
             headers.Cookie = data;
             if (err) {
@@ -157,6 +171,7 @@ screen.render();
             };
         });
 
+        //start search
         try {
             let response = '';
             await fetch(url, { headers }).then(reply => {
@@ -166,13 +181,17 @@ screen.render();
             });
             const data = await response.json();
 
+            //handle data
             if (data.results && data.results.length > 0) {
+                //make resultIds an array of app ids
                 const resultIds = data.results.map(result => result.id);
                 logger.log(`got ${resultIds.length} bot IDs. getting discord auth links...`);
 
+                //for every id, get the raw invite url for the id
                 for (const id of resultIds) {
                     logger.log(`pulling top.gg redirect from ${id}`);
 
+                    //will change when site updates unfortunately
                     const inviteUrl = `https://top.gg/_next/data/3ec65ad-prod/en/bot/${id}/invite.json?botId=${id}`;
                     let inviteResponse = ``;
                     await fetch(inviteUrl, { headers }).then(reply => {
@@ -184,17 +203,20 @@ screen.render();
                     const inviteData = await inviteResponse.json();
                     const redirectLink = inviteData.pageProps.__N_REDIRECT;
 
+                    //check if the url is a vanilla discord invite
                     if (redirectLink.includes("https://discord.com/") || redirectLink.includes("https://discordapp.com/")) {
                         logger.log(`vanilla discord bot invite found for ${id}!`);
                         const clientId = redirectLink.match(/client_id=(\d+)/)[1];
                         let link;
 
+                        //enable in config
                         if (config.clearpermissionsandscopes) {
                             link = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=0&scope=bot`;
                         } else {
                             link = redirectLink;
                         }
-    
+                        
+                        //log to txt, output, and logger
                         writeFile(link);
                         logger.log(`added ${link}`);
                         output.log(link);
@@ -202,9 +224,11 @@ screen.render();
                     } else {
                         logger.log(`top.gg response did not contain vanilla invite link for ${id}.`);
                         
+                        //handle other urls
                         if (config.ignorenonvanillainvitelinks) {
                             logger.log(`skipping because of configuration.`);
                         } else {
+                            //log to txt, output, and logger anyways
                             writeFile(redirectLink);
                             logger.log(`added ${redirectLink}`);
                             output.log(redirectLink);
@@ -213,6 +237,7 @@ screen.render();
                     }
                 }
 
+                //start function again with url skip param plus the amount of results per search
                 await fetchData(skip + config.invitespersearchrequest);
             } else {
                 logger.log('No more data to fetch.');
@@ -220,9 +245,11 @@ screen.render();
         } catch (error) {
             logger.log(`Error fetching data: ${error}`);
             
+            //ignore errors becuz we cool like that
             await fetchData(skip + config.invitespersearchrequest);
         }
     }
 
+    //init looping func
     fetchData();
 })();
